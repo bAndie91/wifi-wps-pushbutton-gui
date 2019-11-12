@@ -127,7 +127,11 @@ def popup_window(data):
 	btn2.connect('clicked', lambda *x: wps_cancel(data['iface'], win))
 	
 	data['vendor'] = macvendorlookup(data['macaddress'])
-	label = "iface: {iface}\ndevice: {dev_name}\nMAC: {vendor} [{macaddress}]".format(**data)
+	label = """
+iface: {iface}
+device: <b>{dev_name}</b>
+MAC: <tt>{vendor} [{macaddress}]</tt>
+""".format(**dict(map(lambda x: (x, glib.markup_escape_text(data[x])), data))).strip()
 	label1.set_markup(label)
 	
 	frm1.set_shadow_type(gtk.SHADOW_ETCHED_IN)
