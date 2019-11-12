@@ -1,0 +1,161 @@
+#!/usr/bin/env python2.7
+# -*- coding: utf-8 -*-
+
+import os
+import sys
+import setproctitle
+import threading
+import socket
+import gtk
+import wnck
+import glib
+gtk.threads_init()
+SO_PASSCRED = 16
+
+
+def set_btn_iconfile(btn, filepath):
+	img = gtk.Image()
+	img.set_from_file(filepath)
+	btn.set_image(img)
+
+def listen_events():
+	# wifi1: WPS-ENROLLEE-SEEN 00:33:d4:3d:06:aa b3fe5069-66d5-5477-b6f3-f3993c1a0744 10-0050F204-5 0x4288 4 1 [Ulefone_S1]
+	while True:
+		line = eventpipe.readline()
+		if line == '':
+			return
+		line = line[:-1]
+		try:
+			(syslogprio_and_month, dayofmonth, time, syslogtag, iface, eventname, macaddress, uuid, devicecategory, config_methods, dev_password_id, request_type, dev_name) = line.split(None, 12)
+		except ValueError:
+			continue
+		
+		if eventname == 'WPS-ENROLLEE-SEEN':
+			# TODO: date/time check
+			if iface[-1] == ':': iface = iface[:-1]
+			if dev_name[0] == '[': dev_name = dev_name[1:]
+			if dev_name[-1] == ']': dev_name = dev_name[:-1]
+			
+			data = {
+				'iface': iface,
+				'macaddress': macaddress,
+				'devicecategory': devicecategory,
+				'dev_name': dev_name,
+			}
+			gtk.threads_enter()
+			popup_window(data)
+			gtk.threads_leave()
+		
+		# TODO: maybe wait for WPS-SUCCESS/WPS-TIMEOUT event?
+
+
+def display_comm_error(win):
+	dlg = gtk.MessageDialog(win, gtk.DIALOG_MODAL | gtk.DIALOG_DESTROY_WITH_PARENT, gtk.MESSAGE_ERROR, gtk.BUTTONS_OK, "Error in communication")
+	dlg.run()
+	dlg.destroy()
+
+def wps_approve(iface, win):
+	wps_action('WPS_PBC', iface, win)
+
+def wps_cancel(iface, win):
+	wps_action('WPS_CANCEL', iface, win)
+
+def wps_action(msg, iface, win):
+	if not send_hostapd_msg(iface, msg):
+		display_comm_error(win)
+	else:
+		# TODO: maybe wait for WPS-SUCCESS/WPS-TIMEOUT event?
+		win.destroy()
+
+def send_hostapd_msg(iface, msg):
+	sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM, 0)
+	sock.setsockopt(socket.SOL_SOCKET, SO_PASSCRED, 1)  # trigger autobind on Linux
+	sock.connect('/var/run/hostapd/' + iface)
+	sock.send(msg)
+	response = sock.recv(3)
+	sock.close()
+	if response == 'OK\n':
+			return True
+	return False
+
+def macvendorlookup(mac):
+	return ''
+
+def transfer_focus(win, wnckwin):
+	wnckwin.activate(gtk.gdk.x11_get_server_time(win.get_window()))
+	win.disconnect(win.get_data('map-event-signal-id'))
+	glib.idle_add(lambda: post_transfer_focus(win), priority=glib.PRIORITY_DEFAULT_IDLE)
+
+def post_transfer_focus(win):
+	win.set_keep_above(False)
+	win.set_sensitive(True)
+
+def drop_focus(win):
+	# Attempt to drop default focus
+	# 'set_focus_on_map' does not seem to work, hence the wnck workarounds
+	win.set_focus_on_map(False)
+	win.set_accept_focus(False)
+	win.set_can_focus(False)
+	win.set_keep_above(True)
+	#win.iconify()
+	
+	win.set_sensitive(False)
+ 	screen = wnck.screen_get_default()
+	screen.force_update()
+	for wnckwin in screen.get_windows():
+		if wnckwin.is_active():
+			sid = win.connect('map-event', lambda *x: transfer_focus(win, wnckwin))
+			win.set_data('map-event-signal-id', sid)
+			break
+
+def popup_window(data):
+	win = gtk.Window()
+	box1 = gtk.VBox()
+	frm1 = gtk.Frame()
+	frm2 = gtk.Frame()
+	box2 = gtk.HBox()
+	label1 = gtk.Label()
+	box3 = gtk.HBox()
+	btn1 = gtk.Button(label="Approve")
+	btn2 = gtk.Button(stock=gtk.STOCK_CANCEL)
+	
+	win.set_title("WPS Request")
+	#window icon
+	drop_focus(win)
+	
+	btn1.connect('clicked', lambda *x: wps_approve(data['iface'], win))
+	btn2.connect('clicked', lambda *x: wps_cancel(data['iface'], win))
+	
+	data['vendor'] = macvendorlookup(data['macaddress'])
+	label = "iface: {iface}\ndevice: {dev_name}\nMAC: {vendor} [{macaddress}]".format(**data)
+	label1.set_markup(label)
+	
+	frm1.set_shadow_type(gtk.SHADOW_ETCHED_IN)
+	frm1.set_border_width(2)
+	frm2.set_shadow_type(gtk.SHADOW_NONE)
+	frm2.set_border_width(4)
+	set_btn_iconfile(btn1, 'wps_approve-32.png')
+	box3.set_focus_child(btn2)
+	
+	win.add(box1)
+	box1.pack_start(frm1, True, True)
+	frm1.add(frm2)
+	frm2.add(box2)
+	box2.pack_start(label1, True, True)
+	box1.pack_start(box3, True, True)
+	box3.pack_start(btn1, True, False)
+	box3.pack_start(btn2, True, False)
+	win.show_all()
+
+
+PROGNAME = 'wps-watcher'
+setproctitle.setproctitle(PROGNAME)
+
+#eventpipe = open('/syslog/local2/hostapd-ctrl.log', 'r')
+# TODO: seek+inotify on file input; just read on fifo
+eventpipe = open('a', 'r')
+thr = threading.Thread(target=listen_events)
+thr.start()
+
+gtk.main()
+thr.join()
