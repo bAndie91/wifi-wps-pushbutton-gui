@@ -36,25 +36,23 @@ def listen_events():
 			# check config methods:
 				# 0b00_1000_0000 = push button
 				# 0b10_0000_0000 = virt push button
-			# log reported manufacturer, model name, model number, serial number (addition to device name)
 			# TODO: signal strength -> distance
 			if iface[-1] == ':': iface = iface[:-1]
-			if dev_name[0] == '[': dev_name = dev_name[1:]
-			if dev_name[-1] == ']': dev_name = dev_name[:-1]
+			if dev_name[0] == '[' and dev_name[-1] == ']':
+				dev_name = dev_name[1:-1]
+				manufacturer = model = model_num = serial = None
+			else:
+				(manufacturer, model, model_num, serial, dev_name) = dev_name.split('|', 4)
 			
 			data = {
 				'iface': iface,
 				'macaddress': macaddress,
 				'devicecategory': devicecategory,
 				'dev_name': dev_name,
-#				'manufacturer': manufacturer,
-#				'model': model,
-#				'model_num': model_num,
-#				'serial': serial,
-				'manufacturer': 'manufacturer',
-				'model': 'model',
-				'model_num': 'model_num',
-				'serial': 'serial',
+				'manufacturer': manufacturer,
+				'model': model,
+				'model_num': model_num,
+				'serial': serial,
 			}
 			gtk.threads_enter()
 			popup_window(data)
@@ -211,7 +209,12 @@ def popup_window(data):
 	else:
 		data['categ_name'] = 'unknown'
 	variables = dict(map(lambda x: (x, glib.markup_escape_text(data[x])), data))
-	variables['dev_name'] = variables['dev_name'] or "(unknown)"
+	if not data['dev_name']:
+		variables['dev_name'] = "(unknown)"
+	if data['model_num'] == data['model']:
+		variables['model_num'] = ''
+	if not data['serial']:
+		variables['serial'] = "n/a"
 	variables.update({
 		'dev_name_font_weight': 'bold' if data['dev_name'] else 'light',
 		'dev_name_font_style': 'normal' if data['dev_name'] else 'italic',
