@@ -128,6 +128,16 @@ def device_category_name(cat):
 def device_subcategory_name(cat, sub):
 	return DeviceCategory.get(cat, {}).get('sub', {}).get(sub)
 
+def get_devtype_icon(cat = 'default', sub = 'default'):
+	d = 'enrollee-device-category'
+	e = '.png'
+	p = os.path.join(d, cat, sub) + e
+	if not os.path.exists(p):
+		p = os.path.join(d, cat, 'default') + e
+	if not os.path.exists(p):
+		p = os.path.join(d, 'default', 'default') + e
+	return p
+
 def transfer_focus(win, wnckwin):
 	wnckwin.activate(gtk.gdk.x11_get_server_time(win.get_window()))
 	win.disconnect(win.get_data('map-event-signal-id'))
@@ -186,7 +196,8 @@ def popup_window(data):
 	categ = int(categ)
 	subcateg = int(subcateg)
 	categ_name = device_category_name(categ)
-	ico2.set_from_file('enrollee-device-category/%s.png' % (categ_name or 'default'))
+	subcateg_name = device_subcategory_name(categ, subcateg)
+	ico2.set_from_file(get_devtype_icon(categ_name, subcateg_name))
 	ico1.set_padding(6, 4)
 	ico2.set_padding(6, 4)
 	set_btn_iconfile(btn1, 'wps-approve_32.png')
@@ -195,7 +206,6 @@ def popup_window(data):
 	data['macvendor'] = macvendorlookup(data['macaddress'])
 	if categ_name:
 		data['categ_name'] = categ_name
-		subcateg_name = device_subcategory_name(categ, subcateg)
 		if subcateg_name:
 			data['categ_name'] += " ◆ " + subcateg_name
 	else:
