@@ -9,6 +9,7 @@ import socket
 import gtk
 import wnck
 import glib
+import re
 gtk.threads_init()
 SO_PASSCRED = 16
 
@@ -32,6 +33,11 @@ def listen_events():
 		
 		if eventname == 'WPS-ENROLLEE-SEEN':
 			# TODO: date/time check
+			# check config methods:
+				# 0b00_1000_0000 = push button
+				# 0b10_0000_0000 = virt push button
+			# log reported manufacturer, model name, model number, serial number (addition to device name)
+			# TODO: signal strength -> distance
 			if iface[-1] == ':': iface = iface[:-1]
 			if dev_name[0] == '[': dev_name = dev_name[1:]
 			if dev_name[-1] == ']': dev_name = dev_name[:-1]
@@ -41,6 +47,14 @@ def listen_events():
 				'macaddress': macaddress,
 				'devicecategory': devicecategory,
 				'dev_name': dev_name,
+#				'manufacturer': manufacturer,
+#				'model': model,
+#				'model_num': model_num,
+#				'serial': serial,
+				'manufacturer': 'manufacturer',
+				'model': 'model',
+				'model_num': 'model_num',
+				'serial': 'serial',
 			}
 			gtk.threads_enter()
 			popup_window(data)
@@ -79,7 +93,40 @@ def send_hostapd_msg(iface, msg):
 	return False
 
 def macvendorlookup(mac):
-	return ''
+	return 'dummy vendor'
+
+def read_device_type_definitions():
+	with open('wps-device-types.c', 'r') as f:
+		do_read = False
+		categs = []
+		current_categ = -1
+		# NOTE: we assume that 'eapwps_tlv_primary_device_type_category' if at the top of the file
+		# and subcategories come after it in ascending order of category Id.
+		while True:
+			line = f.readline()
+			if line == '': break
+			if re.search(r'value_string eapwps_tlv_', line):
+				do_read = True
+				if len(categs) > 0:
+					current_categ += 1
+			if re.match(r'\};', line):
+				do_read = False
+			if do_read:
+				m = re.search(r'0x([0-9a-f]+),\s*"(.+?)"', line, re.IGNORECASE)
+				if m:
+					num = int(m.group(1), 16)
+					name = m.group(2)
+					if current_categ >= 0:
+						DeviceCategory[categs[current_categ]]['sub'][num] = name
+					else:
+						categs.append(num)
+						DeviceCategory[num] = {'name': name, 'sub': {}}
+
+def device_category_name(cat):
+	return DeviceCategory.get(cat, {}).get('name')
+
+def device_subcategory_name(cat, sub):
+	return DeviceCategory.get(cat, {}).get('sub', {}).get(sub)
 
 def transfer_focus(win, wnckwin):
 	wnckwin.activate(gtk.gdk.x11_get_server_time(win.get_window()))
@@ -92,13 +139,14 @@ def post_transfer_focus(win):
 
 def drop_focus(win):
 	# Attempt to drop default focus
-	# 'set_focus_on_map' does not seem to work, hence the wnck workarounds
+	# 'set_focus_on_map' does not seem to work (under iceWM), hence the wnck workaround
 	win.set_focus_on_map(False)
 	win.set_accept_focus(False)
 	win.set_can_focus(False)
 	win.set_keep_above(True)
 	#win.iconify()
 	
+	# Here comes the wnck-based workaround
 	win.set_sensitive(False)
  	screen = wnck.screen_get_default()
 	screen.force_update()
@@ -110,50 +158,89 @@ def drop_focus(win):
 
 def popup_window(data):
 	win = gtk.Window()
-	box1 = gtk.VBox()
+	box_outermost = gtk.VBox()
 	frm1 = gtk.Frame()
 	frm2 = gtk.Frame()
-	box2 = gtk.HBox()
+	box_info = gtk.HBox()
+	box_icons = gtk.VBox()
+	box_texts = gtk.VBox()
+	ico1 = gtk.Image()
+	ico2 = gtk.Image()
 	label1 = gtk.Label()
-	box3 = gtk.HBox()
+	box_buttons = gtk.HBox()
 	btn1 = gtk.Button(label="Approve")
 	btn2 = gtk.Button(stock=gtk.STOCK_CANCEL)
 	
 	win.set_title("WPS Request")
-	#window icon
+	win.set_icon_from_file('wps-approve_16.png')
 	drop_focus(win)
-	
 	btn1.connect('clicked', lambda *x: wps_approve(data['iface'], win))
 	btn2.connect('clicked', lambda *x: wps_cancel(data['iface'], win))
-	
-	data['vendor'] = macvendorlookup(data['macaddress'])
-	label = """
-iface: {iface}
-device: <b>{dev_name}</b>
-MAC: <tt>{vendor} [{macaddress}]</tt>
-""".format(**dict(map(lambda x: (x, glib.markup_escape_text(data[x])), data))).strip()
-	label1.set_markup(label)
 	
 	frm1.set_shadow_type(gtk.SHADOW_ETCHED_IN)
 	frm1.set_border_width(2)
 	frm2.set_shadow_type(gtk.SHADOW_NONE)
 	frm2.set_border_width(4)
-	set_btn_iconfile(btn1, 'wps_approve-32.png')
-	box3.set_focus_child(btn2)
+	ico1.set_from_file('wifi-logo.png')
+	(categ, _, subcateg) = data['devicecategory'].split('-')
+	categ = int(categ)
+	subcateg = int(subcateg)
+	categ_name = device_category_name(categ)
+	ico2.set_from_file('enrollee-device-category/%s.png' % (categ_name or 'default'))
+	ico1.set_padding(6, 4)
+	ico2.set_padding(6, 4)
+	set_btn_iconfile(btn1, 'wps-approve_32.png')
+	box_buttons.set_focus_child(btn2)
 	
-	win.add(box1)
-	box1.pack_start(frm1, True, True)
+	data['macvendor'] = macvendorlookup(data['macaddress'])
+	if categ_name:
+		data['categ_name'] = categ_name
+		subcateg_name = device_subcategory_name(categ, subcateg)
+		if subcateg_name:
+			data['categ_name'] += " ◆ " + subcateg_name
+	else:
+		data['categ_name'] = 'unknown'
+	variables = dict(map(lambda x: (x, glib.markup_escape_text(data[x])), data))
+	variables['dev_name'] = variables['dev_name'] or "(unknown)"
+	variables.update({
+		'dev_name_font_weight': 'bold' if data['dev_name'] else 'light',
+		'dev_name_font_style': 'normal' if data['dev_name'] else 'italic',
+	})
+	label1.set_markup("""
+
+AP: {iface}
+
+Enrollee Name: <span font_weight='{dev_name_font_weight}' font_style='{dev_name_font_style}' font-size='larger'>{dev_name}</span>
+
+Type: {categ_name}
+Model: {manufacturer} ◆ {model} {model_num}
+
+Serial: <tt>{serial}</tt>
+MAC: <b>{macvendor}</b> <tt>[{macaddress}]</tt>
+
+""".strip().format(**variables))
+	
+	
+	win.add(box_outermost)
+	box_outermost.pack_start(frm1, True, True)
 	frm1.add(frm2)
-	frm2.add(box2)
-	box2.pack_start(label1, True, True)
-	box1.pack_start(box3, True, True)
-	box3.pack_start(btn1, True, False)
-	box3.pack_start(btn2, True, False)
+	frm2.add(box_info)
+	box_info.pack_start(box_icons, True, False)
+	box_info.pack_start(box_texts, True, True)
+	box_icons.pack_start(ico1, False, False)
+	box_icons.pack_start(ico2, False, False)
+	box_texts.pack_start(label1, False, True)
+	box_outermost.pack_start(box_buttons, False, False)
+	box_buttons.pack_start(btn1, True, False)
+	box_buttons.pack_start(btn2, True, False)
 	win.show_all()
 
 
 PROGNAME = 'wps-watcher'
 setproctitle.setproctitle(PROGNAME)
+
+DeviceCategory = {}
+read_device_type_definitions()
 
 #eventpipe = open('/syslog/local2/hostapd-ctrl.log', 'r')
 # TODO: seek+inotify on file input; just read on fifo
