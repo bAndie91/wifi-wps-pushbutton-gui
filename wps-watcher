@@ -9,7 +9,9 @@ import socket
 import gtk
 import wnck
 import glib
+import gobject
 import re
+from manuf import MacParser
 gtk.threads_init()
 SO_PASSCRED = 16
 
@@ -19,8 +21,13 @@ def set_btn_iconfile(btn, filepath):
 	img.set_from_file(filepath)
 	btn.set_image(img)
 
+def set_stock_button_label(btn, label):
+	align = btn.get_children()[0]
+	hbox = align.get_children()[0]
+	x, lbl = hbox.get_children()
+	lbl.set_label(label)
+
 def listen_events():
-	# wifi1: WPS-ENROLLEE-SEEN 00:33:d4:3d:06:aa b3fe5069-66d5-5477-b6f3-f3993c1a0744 10-0050F204-5 0x4288 4 1 [Ulefone_S1]
 	while True:
 		line = eventpipe.readline()
 		if line == '':
@@ -55,6 +62,7 @@ def listen_events():
 				'serial': serial,
 			}
 			gtk.threads_enter()
+			#WnckScreen.force_update()
 			popup_window(data)
 			gtk.threads_leave()
 		
@@ -91,7 +99,7 @@ def send_hostapd_msg(iface, msg):
 	return False
 
 def macvendorlookup(mac):
-	return 'dummy vendor'
+	return Macparser.get_manuf_long(mac) or Macparser.get_manuf(mac) or ''
 
 def read_device_type_definitions():
 	with open('wps-device-types.c', 'r') as f:
@@ -126,7 +134,9 @@ def device_category_name(cat):
 def device_subcategory_name(cat, sub):
 	return DeviceCategory.get(cat, {}).get('sub', {}).get(sub)
 
-def get_devtype_icon(cat = 'default', sub = 'default'):
+def get_devtype_icon(cat, sub):
+	cat = cat or 'default'
+	sub = sub or 'default'
 	d = 'enrollee-device-category'
 	e = '.png'
 	p = os.path.join(d, cat, sub) + e
@@ -137,13 +147,15 @@ def get_devtype_icon(cat = 'default', sub = 'default'):
 	return p
 
 def transfer_focus(win, wnckwin):
-	wnckwin.activate(gtk.gdk.x11_get_server_time(win.get_window()))
 	win.disconnect(win.get_data('map-event-signal-id'))
+	glib.idle_add(lambda: wnckwin.activate(gtk.gdk.x11_get_server_time(win.get_window())), priority=glib.PRIORITY_DEFAULT_IDLE)
 	glib.idle_add(lambda: post_transfer_focus(win), priority=glib.PRIORITY_DEFAULT_IDLE)
+	#gobject.timeout_add(0, post_transfer_focus, win)
 
 def post_transfer_focus(win):
 	win.set_keep_above(False)
 	win.set_sensitive(True)
+	return False
 
 def drop_focus(win):
 	# Attempt to drop default focus
@@ -156,13 +168,15 @@ def drop_focus(win):
 	
 	# Here comes the wnck-based workaround
 	win.set_sensitive(False)
- 	screen = wnck.screen_get_default()
-	screen.force_update()
-	for wnckwin in screen.get_windows():
+	active_found = False
+	for wnckwin in WnckScreen.get_windows():
 		if wnckwin.is_active():
+			active_found = True
 			sid = win.connect('map-event', lambda *x: transfer_focus(win, wnckwin))
 			win.set_data('map-event-signal-id', sid)
 			break
+	if not active_found:
+		post_transfer_focus(win)
 
 def popup_window(data):
 	win = gtk.Window()
@@ -177,13 +191,15 @@ def popup_window(data):
 	label1 = gtk.Label()
 	box_buttons = gtk.HBox()
 	btn1 = gtk.Button(label="Approve")
-	btn2 = gtk.Button(stock=gtk.STOCK_CANCEL)
+	btn2 = gtk.Button(stock=gtk.STOCK_STOP)
+	btn3 = gtk.Button(stock=gtk.STOCK_CLOSE)
 	
 	win.set_title("WPS Request")
 	win.set_icon_from_file('wps-approve_16.png')
 	drop_focus(win)
 	btn1.connect('clicked', lambda *x: wps_approve(data['iface'], win))
 	btn2.connect('clicked', lambda *x: wps_cancel(data['iface'], win))
+	btn3.connect('clicked', lambda *x: win.destroy())
 	
 	frm1.set_shadow_type(gtk.SHADOW_ETCHED_IN)
 	frm1.set_border_width(2)
@@ -199,16 +215,19 @@ def popup_window(data):
 	ico1.set_padding(6, 4)
 	ico2.set_padding(6, 4)
 	set_btn_iconfile(btn1, 'wps-approve_32.png')
+	set_stock_button_label(btn2, "Disallow")
+	set_stock_button_label(btn3, "Ignore")
 	box_buttons.set_focus_child(btn2)
 	
+	data['dev_name'] = data['dev_name'].strip()
 	data['macvendor'] = macvendorlookup(data['macaddress'])
 	if categ_name:
 		data['categ_name'] = categ_name
 		if subcateg_name:
 			data['categ_name'] += " ◆ " + subcateg_name
 	else:
-		data['categ_name'] = 'unknown'
-	variables = dict(map(lambda x: (x, glib.markup_escape_text(data[x])), data))
+		data['categ_name'] = "unknown"
+	variables = dict(map(lambda x: (x, glib.markup_escape_text(data[x] or '')), data))
 	if not data['dev_name']:
 		variables['dev_name'] = "(unknown)"
 	if data['model_num'] == data['model']:
@@ -221,17 +240,18 @@ def popup_window(data):
 	})
 	label1.set_markup("""
 
-AP: {iface}
+<span color='darkgrey'>AP:</span> {iface}
 
-Enrollee Name: <span font_weight='{dev_name_font_weight}' font_style='{dev_name_font_style}' font-size='larger'>{dev_name}</span>
+<span color='darkgrey'>Enrollee Name:</span> <span font_weight='{dev_name_font_weight}' font_style='{dev_name_font_style}' font-size='larger'>{dev_name}</span>
 
-Type: {categ_name}
-Model: {manufacturer} ◆ {model} {model_num}
+<span color='darkgrey'>Type:</span> {categ_name}
+<span color='darkgrey'>Model:</span> {manufacturer} ◆ {model} {model_num}
 
-Serial: <tt>{serial}</tt>
-MAC: <b>{macvendor}</b> <tt>[{macaddress}]</tt>
+<span color='darkgrey'>Serial:</span> <tt>{serial}</tt>
+<span color='darkgrey'>MAC:</span> <b>{macvendor}</b> <tt>[{macaddress}]</tt>
 
-""".strip().format(**variables))
+	""".strip().format(**variables))
+	label1.set_selectable(True)
 	
 	
 	win.add(box_outermost)
@@ -246,6 +266,7 @@ MAC: <b>{macvendor}</b> <tt>[{macaddress}]</tt>
 	box_outermost.pack_start(box_buttons, False, False)
 	box_buttons.pack_start(btn1, True, False)
 	box_buttons.pack_start(btn2, True, False)
+	box_buttons.pack_start(btn3, True, False)
 	win.show_all()
 
 
@@ -254,7 +275,10 @@ setproctitle.setproctitle(PROGNAME)
 
 DeviceCategory = {}
 read_device_type_definitions()
+Macparser = MacParser('manuf/manuf.txt')
+WnckScreen = wnck.screen_get_default()
 
+# TODO: config hostapd ctrl socket OR a command to control hostapd
 #eventpipe = open('/syslog/local2/hostapd-ctrl.log', 'r')
 # TODO: seek+inotify on file input; just read on fifo
 eventpipe = open('a', 'r')
