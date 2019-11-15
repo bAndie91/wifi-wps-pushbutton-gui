@@ -14,6 +14,7 @@ import re
 from manuf import MacParser
 import inotifyx
 import time
+from datetime import datetime
 import traceback
 gtk.threads_init()
 SO_PASSCRED = 16
@@ -49,37 +50,41 @@ def listen_events():
 			continue
 		line = line[:-1]
 		try:
-			(syslogprio_and_month, dayofmonth, time, syslogtag, iface, eventname, macaddress, uuid, devicecategory, config_methods, dev_password_id, request_type, dev_name) = line.split(None, 12)
+			(syslogprio_and_month, dayofmonth, thetime, syslogtag, iface, eventname, macaddress, uuid, devicecategory, config_methods, dev_password_id, request_type, dev_name) = line.split(None, 12)
 		except ValueError:
 			continue
 		
 		if eventname == 'WPS-ENROLLEE-SEEN':
-			# TODO: date/time check
-			# check config methods:
-				# 0b00_1000_0000 = push button
-				# 0b10_0000_0000 = virt push button
-			# TODO: signal strength -> distance
-			if iface[-1] == ':': iface = iface[:-1]
-			if dev_name[0] == '[' and dev_name[-1] == ']':
-				dev_name = dev_name[1:-1]
-				manufacturer = model = model_num = serial = None
-			else:
-				(manufacturer, model, model_num, serial, dev_name) = dev_name.split('|', 4)
-			
-			data = {
-				'iface': iface,
-				'macaddress': macaddress,
-				'devicecategory': devicecategory,
-				'dev_name': dev_name,
-				'manufacturer': manufacturer,
-				'model': model,
-				'model_num': model_num,
-				'serial': serial,
-			}
-			gtk.threads_enter()
-			#WnckScreen.force_update()
-			popup_window(data)
-			gtk.threads_leave()
+			# TODO: consider syslog timezone
+			month = syslogprio_and_month.split('>')[1]
+			eventtime = int(datetime.strftime(datetime.strptime('%s %s %s %s' % (month, dayofmonth, thetime, time.gmtime().tm_year), '%b %d %H:%M:%S %Y'), '%s'))
+			now = time.time()
+			if eventtime + WPS_TIMEOUT_SEC > now:
+				# check config methods:
+					# 0b00_1000_0000 = push button
+					# 0b10_0000_0000 = virt push button
+				# TODO: signal strength -> distance
+				if iface[-1] == ':': iface = iface[:-1]
+				if dev_name[0] == '[' and dev_name[-1] == ']':
+					dev_name = dev_name[1:-1]
+					manufacturer = model = model_num = serial = None
+				else:
+					(manufacturer, model, model_num, serial, dev_name) = dev_name.split('|', 4)
+				
+				data = {
+					'iface': iface,
+					'macaddress': macaddress,
+					'devicecategory': devicecategory,
+					'dev_name': dev_name,
+					'manufacturer': manufacturer,
+					'model': model,
+					'model_num': model_num,
+					'serial': serial,
+				}
+				gtk.threads_enter()
+				#WnckScreen.force_update()
+				popup_window(data)
+				gtk.threads_leave()
 		
 		# TODO: maybe wait for WPS-SUCCESS/WPS-TIMEOUT event?
 
@@ -304,6 +309,7 @@ def popup_window(data):
 PROGNAME = 'wps-watcher'
 setproctitle.setproctitle(PROGNAME)
 events_file_path = os.environ.get('HOSTAPD_CTRL_LOG', '/syslog/local2/hostapd-ctrl.log')
+WPS_TIMEOUT_SEC = 120
 DeviceCategory = {}
 read_device_type_definitions()
 Macparser = MacParser('manuf/manuf.txt')
