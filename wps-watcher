@@ -18,6 +18,9 @@ from datetime import datetime
 import traceback
 gtk.threads_init()
 SO_PASSCRED = 16
+WPS_CONFIG_PUSHBUTTON = 0x0080
+WPS_CONFIG_VIRT_PUSHBUTTON = 0x0280
+WPS_CONFIG_PHY_PUSHBUTTON = 0x0480
 
 
 def set_btn_iconfile(btn, filepath):
@@ -60,31 +63,30 @@ def listen_events():
 			eventtime = int(datetime.strftime(datetime.strptime('%s %s %s %s' % (month, dayofmonth, thetime, time.gmtime().tm_year), '%b %d %H:%M:%S %Y'), '%s'))
 			now = time.time()
 			if eventtime + WPS_TIMEOUT_SEC > now:
-				# check config methods:
-					# 0b00_1000_0000 = push button
-					# 0b10_0000_0000 = virt push button
-				# TODO: signal strength -> distance
-				if iface[-1] == ':': iface = iface[:-1]
-				if dev_name[0] == '[' and dev_name[-1] == ']':
-					dev_name = dev_name[1:-1]
-					manufacturer = model = model_num = serial = None
-				else:
-					(manufacturer, model, model_num, serial, dev_name) = dev_name.split('|', 4)
-				
-				data = {
-					'iface': iface,
-					'macaddress': macaddress,
-					'devicecategory': devicecategory,
-					'dev_name': dev_name,
-					'manufacturer': manufacturer,
-					'model': model,
-					'model_num': model_num,
-					'serial': serial,
-				}
-				gtk.threads_enter()
-				#WnckScreen.force_update()
-				popup_window(data)
-				gtk.threads_leave()
+				config_methods = int(config_methods, 16)
+				if config_methods & WPS_CONFIG_PUSHBUTTON or config_methods & WPS_CONFIG_VIRT_PUSHBUTTON or config_methods & WPS_CONFIG_PHY_PUSHBUTTON:
+					if iface[-1] == ':': iface = iface[:-1]
+					if dev_name[0] == '[' and dev_name[-1] == ']':
+						dev_name = dev_name[1:-1]
+						manufacturer = model = model_num = serial = None
+					else:
+						(manufacturer, model, model_num, serial, dev_name) = dev_name.split('|', 4)
+					# TODO: signal strength -> distance
+					
+					data = {
+						'iface': iface,
+						'macaddress': macaddress,
+						'devicecategory': devicecategory,
+						'dev_name': dev_name,
+						'manufacturer': manufacturer,
+						'model': model,
+						'model_num': model_num,
+						'serial': serial,
+					}
+					gtk.threads_enter()
+					#WnckScreen.force_update()
+					popup_window(data, eventtime)
+					gtk.threads_leave()
 		
 		# TODO: maybe wait for WPS-SUCCESS/WPS-TIMEOUT event?
 
@@ -131,7 +133,7 @@ def send_hostapd_msg(iface, msg):
 	response = sock.recv(3)
 	sock.close()
 	if response == 'OK\n':
-			return True
+		return True
 	return False
 
 def macvendorlookup(mac):
@@ -214,9 +216,21 @@ def drop_focus(win):
 	if not active_found:
 		post_transfer_focus(win)
 
-def popup_window(data):
+def count_down(win, progressbar, eventtime, WPS_TIMEOUT_SEC):
+	now = time.time()
+	time_remaining = WPS_TIMEOUT_SEC - (now - eventtime)
+	if time_remaining < 0:
+		win.destroy()
+		return False
+	progressbar.set_fraction(time_remaining / WPS_TIMEOUT_SEC)
+	minu = int(time_remaining / 60)
+	secu = time_remaining % 60
+	progressbar.set_text('%02d:%02d' % (minu, secu))
+	return True
+
+def popup_window(data, eventtime):
 	win = gtk.Window()
-	box_outermost = gtk.VBox()
+	box_outermost = gtk.VBox(spacing = 12)
 	frm1 = gtk.Frame()
 	frm2 = gtk.Frame()
 	box_info = gtk.HBox()
@@ -225,6 +239,7 @@ def popup_window(data):
 	ico1 = gtk.Image()
 	ico2 = gtk.Image()
 	label1 = gtk.Label()
+	progressbar = gtk.ProgressBar()
 	box_buttons = gtk.HBox()
 	btn1 = gtk.Button(label="Approve")
 	btn2 = gtk.Button(stock=gtk.STOCK_STOP)
@@ -288,7 +303,8 @@ def popup_window(data):
 
 	""".strip().format(**variables))
 	label1.set_selectable(True)
-	
+	progressbar
+	gobject.timeout_add(1000, count_down, win, progressbar, eventtime, WPS_TIMEOUT_SEC)
 	
 	win.add(box_outermost)
 	box_outermost.pack_start(frm1, True, True)
@@ -299,6 +315,7 @@ def popup_window(data):
 	box_icons.pack_start(ico1, False, False)
 	box_icons.pack_start(ico2, False, False)
 	box_texts.pack_start(label1, False, True)
+	box_outermost.pack_start(progressbar, True, False)
 	box_outermost.pack_start(box_buttons, False, False)
 	box_buttons.pack_start(btn1, True, False)
 	box_buttons.pack_start(btn2, True, False)
@@ -319,4 +336,5 @@ thr = threading.Thread(target=listen_events)
 thr.start()
 
 gtk.main()
+
 thr.join()
