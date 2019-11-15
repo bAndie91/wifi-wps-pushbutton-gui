@@ -12,6 +12,9 @@ import glib
 import gobject
 import re
 from manuf import MacParser
+import inotifyx
+import time
+import traceback
 gtk.threads_init()
 SO_PASSCRED = 16
 
@@ -28,10 +31,22 @@ def set_stock_button_label(btn, label):
 	lbl.set_label(label)
 
 def listen_events():
+	eventpipe, inotifier = open_events_file()
+	# This file is expected to be appended to, like a log file.
+	eventpipe.seek(0, 2)
 	while True:
 		line = eventpipe.readline()
 		if line == '':
-			return
+			# EOF reached. wait until file is touched.
+			for event in inotifyx.get_events(inotifier):
+				if event.mask & inotifyx.IN_MOVE_SELF:
+					os.close(inotifier)
+					eventpipe.close()
+					eventpipe, inotifier = open_events_file()
+					break
+				if event.mask & inotifyx.IN_MODIFY:
+					break
+			continue
 		line = line[:-1]
 		try:
 			(syslogprio_and_month, dayofmonth, time, syslogtag, iface, eventname, macaddress, uuid, devicecategory, config_methods, dev_password_id, request_type, dev_name) = line.split(None, 12)
@@ -68,6 +83,21 @@ def listen_events():
 		
 		# TODO: maybe wait for WPS-SUCCESS/WPS-TIMEOUT event?
 
+def open_events_file():
+	retry_sec = 2
+	while True:
+		try:
+			fd = open(events_file_path, 'r')
+			break
+		except IOError as error:
+			traceback.print_exc()
+			# It's expected to be re-created in a relative short time.
+			sys.stderr.write("Retry in %d sec..." % (retry_sec,))
+			time.sleep(retry_sec)
+	inot = inotifyx.init()
+	# This file is expected to be appended to only, so don't need to watch clobber events.
+	inotifyx.add_watch(inot, events_file_path, inotifyx.IN_MODIFY | inotifyx.IN_MOVE_SELF)
+	return fd, inot
 
 def display_comm_error(win):
 	dlg = gtk.MessageDialog(win, gtk.DIALOG_MODAL | gtk.DIALOG_DESTROY_WITH_PARENT, gtk.MESSAGE_ERROR, gtk.BUTTONS_OK, "Error in communication")
@@ -81,6 +111,7 @@ def wps_cancel(iface, win):
 	wps_action('WPS_CANCEL', iface, win)
 
 def wps_action(msg, iface, win):
+	# TODO: config hostapd ctrl socket OR a command to control hostapd
 	if not send_hostapd_msg(iface, msg):
 		display_comm_error(win)
 	else:
@@ -272,16 +303,12 @@ def popup_window(data):
 
 PROGNAME = 'wps-watcher'
 setproctitle.setproctitle(PROGNAME)
-
+events_file_path = os.environ.get('HOSTAPD_CTRL_LOG', '/syslog/local2/hostapd-ctrl.log')
 DeviceCategory = {}
 read_device_type_definitions()
 Macparser = MacParser('manuf/manuf.txt')
-WnckScreen = wnck.screen_get_default()
 
-# TODO: config hostapd ctrl socket OR a command to control hostapd
-#eventpipe = open('/syslog/local2/hostapd-ctrl.log', 'r')
-# TODO: seek+inotify on file input; just read on fifo
-eventpipe = open('a', 'r')
+WnckScreen = wnck.screen_get_default()
 thr = threading.Thread(target=listen_events)
 thr.start()
 
