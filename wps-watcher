@@ -82,13 +82,16 @@ def listen_events():
 						'model': model,
 						'model_num': model_num,
 						'serial': serial,
+						'uuid': uuid,
 					}
 					gtk.threads_enter()
-					#WnckScreen.force_update()
-					popup_window(data, eventtime)
+					if uuid not in Windows:
+						#WnckScreen.force_update()
+						popup_window(data, eventtime)
 					gtk.threads_leave()
 		
 		# TODO: maybe wait for WPS-SUCCESS/WPS-TIMEOUT event?
+		# TODO: consider request_type (WPS_REQ_ENROLLEE_INFO = 0, WPS_REQ_ENROLLEE = 1, WPS_REQ_REGISTRAR = 2, WPS_REQ_WLAN_MANAGER_REGISTRAR = 3)
 
 def open_events_file():
 	retry_sec = 2
@@ -247,7 +250,9 @@ def popup_window(data, eventtime):
 	
 	win.set_title("WPS Request")
 	win.set_icon_from_file('wps-approve_16.png')
+	win.set_data('uuid', data['uuid'])
 	drop_focus(win)
+	win.connect('destroy', lambda w, uuid: Windows.__delitem__(uuid), data['uuid'])
 	btn1.connect('clicked', lambda *x: wps_approve(data['iface'], win))
 	btn2.connect('clicked', lambda *x: wps_cancel(data['iface'], win))
 	btn3.connect('clicked', lambda *x: win.destroy())
@@ -302,8 +307,7 @@ def popup_window(data, eventtime):
 <span color='darkgrey'>MAC:</span> <b>{macvendor}</b> <tt>[{macaddress}]</tt>
 
 	""".strip().format(**variables))
-	label1.set_selectable(True)
-	progressbar
+	#label1.set_selectable(True)
 	gobject.timeout_add(1000, count_down, win, progressbar, eventtime, WPS_TIMEOUT_SEC)
 	
 	win.add(box_outermost)
@@ -321,6 +325,7 @@ def popup_window(data, eventtime):
 	box_buttons.pack_start(btn2, True, False)
 	box_buttons.pack_start(btn3, True, False)
 	win.show_all()
+	Windows[data['uuid']] = win
 
 
 PROGNAME = 'wps-watcher'
@@ -330,6 +335,7 @@ WPS_TIMEOUT_SEC = 120
 DeviceCategory = {}
 read_device_type_definitions()
 Macparser = MacParser('manuf/manuf.txt')
+Windows = {}
 
 WnckScreen = wnck.screen_get_default()
 thr = threading.Thread(target=listen_events)
