@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=WPS Push Button
+Comment=Watch hostAPd log for WPS enrollment events and ask for approval on them
+Icon=/usr/share/wps-pushbutton-gui/wps-approve_32.png
+Exec=/usr/bin/wps-pushbutton-gui
+Terminal=false
+Type=Application
+X-GNOME-Autostart-enabled=true
+X-KDE-autostart-after=panel

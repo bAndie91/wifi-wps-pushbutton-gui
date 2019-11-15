@@ -1,0 +1,16 @@
+Package: wps-pushbutton-gui
+Priority: optional
+Section: net
+Installed-Size: 
+Maintainer: Andras Hrubak <andreas@uucp.hu>
+Architecture: all
+Version: 0.1
+Depends: python-gtk2, python-inotifyx, python-wnck, python-setproctitle
+Recommends:
+Suggests: 
+Provides: 
+Replaces: 
+Conflicts: 
+Homepage: 
+Vcs-Browser: https://github.com/bAndie91/wifi-wps-pushbutton-gui
+Description: Virtual WPS push button

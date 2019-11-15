@@ -11,11 +11,12 @@ import wnck
 import glib
 import gobject
 import re
-from manuf import MacParser
 import inotifyx
 import time
 from datetime import datetime
 import traceback
+os.chdir('/usr/share/wps-pushbutton-gui')
+from manuf import MacParser
 gtk.threads_init()
 SO_PASSCRED = 16
 WPS_CONFIG_PUSHBUTTON = 0x0080
