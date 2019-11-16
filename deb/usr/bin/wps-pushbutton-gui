@@ -15,7 +15,8 @@ import inotifyx
 import time
 from datetime import datetime
 import traceback
-os.chdir('/usr/share/wps-pushbutton-gui')
+SHARED_DIR = '/usr/share/wps-pushbutton-gui'
+sys.path.append(SHARED_DIR)
 from manuf import MacParser
 gtk.threads_init()
 SO_PASSCRED = 16
@@ -334,7 +335,8 @@ def popup_window(data, eventtime):
 	Windows[data['uuid']] = win
 
 
-PROGNAME = 'wps-watcher'
+os.chdir(SHARED_DIR)
+PROGNAME = 'wps-pushbutton-gui'
 setproctitle.setproctitle(PROGNAME)
 events_file_path = os.environ.get('HOSTAPD_CTRL_LOG', '/syslog/local2/hostapd-ctrl.log')
 WPS_TIMEOUT_SEC = 120

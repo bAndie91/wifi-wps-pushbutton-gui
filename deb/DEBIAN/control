@@ -1,10 +1,10 @@
 Package: wps-pushbutton-gui
 Priority: optional
 Section: net
-Installed-Size: 
+Installed-Size: 1632
 Maintainer: Andras Hrubak <andreas@uucp.hu>
 Architecture: all
-Version: 0.1
+Version: 0.3
 Depends: python-gtk2, python-inotifyx, python-wnck, python-setproctitle
 Recommends:
 Suggests: 
