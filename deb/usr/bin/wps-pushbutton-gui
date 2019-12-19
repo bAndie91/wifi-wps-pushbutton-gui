@@ -107,9 +107,10 @@ def open_events_file():
 			fd = open(events_file_path, 'r')
 			break
 		except IOError as error:
+			# TODO: check error type (some errors are not expected to be recovered shortly)
 			traceback.print_exc()
 			# It's expected to be re-created in a relative short time.
-			sys.stderr.write("Retry in %d sec..." % (retry_sec,))
+			sys.stderr.write("Retry in %d sec...\n" % (retry_sec,))
 			time.sleep(retry_sec)
 	inot = inotifyx.init()
 	# This file is expected to be appended to only, so don't need to watch clobber events.
