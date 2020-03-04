@@ -18,6 +18,8 @@ import traceback
 SHARED_DIR = '/usr/share/wps-pushbutton-gui'
 sys.path.append(SHARED_DIR)
 from manuf import MacParser
+import locale
+from contextlib import contextmanager
 gtk.threads_init()
 SO_PASSCRED = 16
 WPS_CONFIG_PUSHBUTTON = 0x0080
@@ -39,6 +41,15 @@ def set_stock_button_label(btn, label):
 	hbox = align.get_children()[0]
 	x, lbl = hbox.get_children()
 	lbl.set_label(label)
+
+@contextmanager
+def setlocale(name):
+	with LOCALE_LOCK:
+		saved = locale.setlocale(locale.LC_ALL)
+		try:
+			yield locale.setlocale(locale.LC_ALL, name)
+		finally:
+			locale.setlocale(locale.LC_ALL, saved)
 
 def listen_events():
 	eventpipe, inotifier = open_events_file()
@@ -66,7 +77,8 @@ def listen_events():
 		if eventname == 'WPS-ENROLLEE-SEEN':
 			# TODO: consider syslog timezone
 			month = syslogprio_and_month.split('>')[1]
-			eventtime = int(datetime.strftime(datetime.strptime('%s %s %s %s' % (month, dayofmonth, thetime, time.gmtime().tm_year), '%b %d %H:%M:%S %Y'), '%s'))
+			with setlocale('C'):
+				eventtime = int(datetime.strftime(datetime.strptime('%s %s %s %s' % (month, dayofmonth, thetime, time.gmtime().tm_year), '%b %d %H:%M:%S %Y'), '%s'))
 			now = time.time()
 			if eventtime + WPS_TIMEOUT_SEC > now:
 				config_methods = int(config_methods, 16)
@@ -346,6 +358,7 @@ DeviceCategory = {}
 read_device_type_definitions()
 Macparser = MacParser('manuf/manuf.txt')
 Windows = {}
+LOCALE_LOCK = threading.Lock()
 
 WnckScreen = wnck.screen_get_default()
 thr = threading.Thread(target=listen_events)
