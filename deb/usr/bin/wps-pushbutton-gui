@@ -49,12 +49,12 @@ def listen_events():
 		if line == '':
 			# EOF reached. wait until file is touched.
 			for event in inotifyx.get_events(inotifier):
-				if event.mask & inotifyx.IN_MOVE_SELF:
+				if event.mask & inotifyx.IN_MODIFY:
+					break
+				elif event.mask != 0:
 					os.close(inotifier)
 					eventpipe.close()
 					eventpipe, inotifier = open_events_file()
-					break
-				if event.mask & inotifyx.IN_MODIFY:
 					break
 			continue
 		line = line[:-1]
@@ -114,7 +114,8 @@ def open_events_file():
 			time.sleep(retry_sec)
 	inot = inotifyx.init()
 	# This file is expected to be appended to only, so don't need to watch clobber events.
-	inotifyx.add_watch(inot, events_file_path, inotifyx.IN_MODIFY | inotifyx.IN_MOVE_SELF)
+	inotifyx.add_watch(inot, events_file_path, inotifyx.IN_MODIFY | inotifyx.IN_MOVE_SELF | inotifyx.IN_DELETE_SELF)
+	# FIXME: symlink() does not generate inotify event
 	return fd, inot
 
 def display_comm_error(win):
@@ -339,7 +340,7 @@ def popup_window(data, eventtime):
 os.chdir(SHARED_DIR)
 PROGNAME = 'wps-pushbutton-gui'
 setproctitle.setproctitle(PROGNAME)
-events_file_path = os.environ.get('HOSTAPD_CTRL_LOG', '/syslog/local2/hostapd-ctrl.log')
+events_file_path = os.environ.get('HOSTAPD_CTRL_LOG', '/var/log/hostapd-wps.log')
 WPS_TIMEOUT_SEC = 120
 DeviceCategory = {}
 read_device_type_definitions()
