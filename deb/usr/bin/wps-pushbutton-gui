@@ -13,6 +13,7 @@ import gobject
 import re
 import inotifyx
 import time
+import errno
 from datetime import datetime
 import traceback
 SHARED_DIR = '/usr/share/wps-pushbutton-gui'
@@ -353,6 +354,19 @@ os.chdir(SHARED_DIR)
 PROGNAME = 'wps-pushbutton-gui'
 setproctitle.setproctitle(PROGNAME)
 events_file_path = os.environ.get('HOSTAPD_CTRL_LOG', '/var/log/hostapd-wps.log')
+
+# verify that we can read wps events
+try:
+	open(events_file_path, 'r')
+except IOError as error:
+	if error.errno in [errno.EPERM, errno.EACCES]:
+		dlg = gtk.MessageDialog(None, gtk.DIALOG_MODAL, gtk.MESSAGE_ERROR, gtk.BUTTONS_CLOSE, '')
+		dlg.set_title(PROGNAME)
+		dlg.set_markup("Can not read event file\n<tt>%s</tt>\nExiting." %(glib.markup_escape_text(str(error)),))
+		dlg.run()
+		dlg.destroy()
+		sys.exit(1)
+
 WPS_TIMEOUT_SEC = 120
 DeviceCategory = {}
 read_device_type_definitions()

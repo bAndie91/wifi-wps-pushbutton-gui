@@ -4,7 +4,7 @@ Section: net
 Installed-Size: 1700
 Maintainer: Andras Hrubak <andreas@uucp.hu>
 Architecture: all
-Version: 0.4
+Version: 0.5
 Depends: python-gtk2, python-inotifyx, python-wnck, python-setproctitle
 Recommends:
 Suggests: 
