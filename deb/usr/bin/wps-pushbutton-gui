@@ -23,14 +23,38 @@ import locale
 from contextlib import contextmanager
 gtk.threads_init()
 SO_PASSCRED = 16
+
+WPS_CONFIG_USBA = 0x0001
+WPS_CONFIG_ETHERNET = 0x0002
+WPS_CONFIG_LABEL = 0x0004
+WPS_CONFIG_DISPLAY = 0x0008
+WPS_CONFIG_EXT_NFC_TOKEN = 0x0010
+WPS_CONFIG_INT_NFC_TOKEN = 0x0020
+WPS_CONFIG_NFC_INTERFACE = 0x0040
+WPS_CONFIG_KEYPAD = 0x0100
+WPS_CONFIG_VIRT_DISPLAY = 0x2008
+WPS_CONFIG_PHY_DISPLAY = 0x4008
 WPS_CONFIG_PUSHBUTTON = 0x0080
 WPS_CONFIG_VIRT_PUSHBUTTON = 0x0280
 WPS_CONFIG_PHY_PUSHBUTTON = 0x0480
+
 WPS_REQ_ENROLLEE_INFO = 0
 WPS_REQ_ENROLLEE = 1
 WPS_REQ_REGISTRAR = 2
 WPS_REQ_WLAN_MANAGER_REGISTRAR = 3
 
+
+def extract_config_methods(config_methods_bitmask):
+	config_methods = []
+	pfx = 'WPS_CONFIG_'
+	for name, value in globals().iteritems():
+		if name.startswith(pfx):
+			if config_methods_bitmask & value:
+				config_methods.append(name.replace(pfx, ''))
+				config_methods_bitmask &= ~value
+	if config_methods_bitmask:
+		config_methods.append('UNKNOWN(0x%x)' % config_methods_bitmask)
+	return config_methods
 
 def set_btn_iconfile(btn, filepath):
 	img = gtk.Image()
@@ -83,33 +107,33 @@ def listen_events():
 			now = time.time()
 			if eventtime + WPS_TIMEOUT_SEC > now:
 				config_methods = int(config_methods, 16)
-				if config_methods & WPS_CONFIG_PUSHBUTTON or config_methods & WPS_CONFIG_VIRT_PUSHBUTTON or config_methods & WPS_CONFIG_PHY_PUSHBUTTON:
-					request_type = int(request_type)
-					if request_type == WPS_REQ_ENROLLEE:
-						if iface[-1] == ':': iface = iface[:-1]
-						if dev_name[0] == '[' and dev_name[-1] == ']':
-							dev_name = dev_name[1:-1]
-							manufacturer = model = model_num = serial = None
-						else:
-							(manufacturer, model, model_num, serial, dev_name) = dev_name.split('|', 4)
-						# TODO: signal strength -> distance
-						
-						data = {
-							'iface': iface,
-							'macaddress': macaddress,
-							'devicecategory': devicecategory,
-							'dev_name': dev_name,
-							'manufacturer': manufacturer,
-							'model': model,
-							'model_num': model_num,
-							'serial': serial,
-							'uuid': uuid,
-						}
-						gtk.threads_enter()
-						if uuid not in Windows:
-							#WnckScreen.force_update()
-							popup_window(data, eventtime)
-						gtk.threads_leave()
+				request_type = int(request_type)
+				if request_type == WPS_REQ_ENROLLEE:
+					if iface[-1] == ':': iface = iface[:-1]
+					if dev_name[0] == '[' and dev_name[-1] == ']':
+						dev_name = dev_name[1:-1]
+						manufacturer = model = model_num = serial = None
+					else:
+						(manufacturer, model, model_num, serial, dev_name) = dev_name.split('|', 4)
+					# TODO: signal strength -> distance
+					
+					data = {
+						'iface': iface,
+						'macaddress': macaddress,
+						'devicecategory': devicecategory,
+						'dev_name': dev_name,
+						'manufacturer': manufacturer,
+						'model': model,
+						'model_num': model_num,
+						'serial': serial,
+						'uuid': uuid,
+						'config_methods': extract_config_methods(config_methods),
+					}
+					gtk.threads_enter()
+					if uuid not in Windows:
+						#WnckScreen.force_update()
+						popup_window(data, eventtime)
+					gtk.threads_leave()
 		
 		# TODO: maybe wait for WPS-SUCCESS/WPS-TIMEOUT event?
 
@@ -305,7 +329,7 @@ def popup_window(data, eventtime):
 			data['categ_name'] += " ◆ " + subcateg_name
 	else:
 		data['categ_name'] = "unknown"
-	variables = dict(map(lambda x: (x, glib.markup_escape_text(data[x] or '')), data))
+	variables = dict(map(lambda x: (x, glib.markup_escape_text(data[x] or '') if isinstance(data[x], str) else x), data))
 	if not data['dev_name']:
 		variables['dev_name'] = "(unknown)"
 	if data['model_num'] == data['model']:
@@ -315,6 +339,7 @@ def popup_window(data, eventtime):
 	variables.update({
 		'dev_name_font_weight': 'bold' if data['dev_name'] else 'light',
 		'dev_name_font_style': 'normal' if data['dev_name'] else 'italic',
+		'config_methods_list': ', '.join(data['config_methods']),
 	})
 	label1.set_markup("""
 
@@ -327,6 +352,7 @@ def popup_window(data, eventtime):
 
 <span color='darkgrey'>Serial:</span> <tt>{serial}</tt>
 <span color='darkgrey'>MAC:</span> <b>{macvendor}</b> <tt>[{macaddress}]</tt>
+<span color='darkgrey'>WPS config methods:</span> {config_methods_list}
 
 	""".strip().format(**variables))
 	#label1.set_selectable(True)
